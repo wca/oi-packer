@@ -17,23 +17,45 @@ send "vagrant\n"
 expect eof
 INLINE
 
-echo "Installing VirtualBox Guest Additions"
-echo "mail=\ninstance=overwrite\npartial=quit" > /tmp/noask.admin
-echo "runlevel=nocheck\nidepend=quit\nrdepend=quit" >> /tmp/noask.admin
-echo "space=quit\nsetuid=nocheck\nconflict=nocheck" >> /tmp/noask.admin
-echo "action=nocheck\nbasedir=default" >> /tmp/noask.admin
-mkdir -p /mnt/vbga
-VBGADEV=`lofiadm -a VBoxGuestAdditions.iso`
-mount -o ro -F hsfs $VBGADEV /mnt/vbga
-pkgadd -a /tmp/noask.admin -G -d /mnt/vbga/VBoxSolarisAdditions.pkg all
-umount /mnt/vbga
-lofiadm -d $VBGADEV
-rm -f VBoxGuestAdditions.iso
+if [ -f VBoxGuestAdditions.iso ]; then
+	echo "Installing VirtualBox Guest Additions"
+	echo "mail=\ninstance=overwrite\npartial=quit" > /tmp/noask.admin
+	echo "runlevel=nocheck\nidepend=quit\nrdepend=quit" >> /tmp/noask.admin
+	echo "space=quit\nsetuid=nocheck\nconflict=nocheck" >> /tmp/noask.admin
+	echo "action=nocheck\nbasedir=default" >> /tmp/noask.admin
+	mkdir -p /mnt/vbga
+	VBGADEV=`lofiadm -a VBoxGuestAdditions.iso`
+	mount -o ro -F hsfs $VBGADEV /mnt/vbga
+	pkgadd -a /tmp/noask.admin -G -d /mnt/vbga/VBoxSolarisAdditions.pkg all
+	umount /mnt/vbga
+	lofiadm -d $VBGADEV
+	rm -f VBoxGuestAdditions.iso
+fi
+
+echo "Ensuring that a network interface will be configured"
+autoifup=/etc/init.d/autoifup
+cat > $autoifup <<INLINE
+#!/bin/sh
+if ! ifconfig -a | grep e1000g; then
+	ipadm create-if e1000g1
+	ipadm create-addr -T dhcp e1000g1/v4
+fi
+INLINE
+chmod 744 $autoifup
+chown root:sys $autoifup
+ln $autoifup /etc/rc2.d/S99autoifup
 
 echo "Adding Vagrant user to sudoers"
 echo "vagrant ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers
 echo 'Defaults env_keep += "SSH_AUTH_SOCK"' >> /etc/sudoers
 chmod 0440 /etc/sudoers
+
+# Reset resolv.conf so curl will work
+echo "Resetting resolv.conf"
+rm -f /etc/resolv.conf
+for ns in 208.67.222.222 208.67.220.220; do
+	echo "nameserver $ns" >> /etc/resolv.conf
+done
 
 # setup the vagrant key
 # you can replace this key-pair with your own generated ssh key-pair
@@ -58,9 +80,5 @@ chown vagrant:other /export/home/vagrant/.ssh/authorized_keys
 # update grub menu to lower timeout to 5 seconds
 echo "Updating Grub boot menu"
 sed -i -e 's/^timeout.*$/timeout 5/' /rpool/boot/grub/menu.lst
-
-# Reset resolv.conf
-echo "Resetting resolv.conf"
-echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
 echo "Post-install done"
